@@ -6,10 +6,10 @@
 import { useState } from 'react';
 import { useGameStore } from '../store/gameStore';
 import { motion, AnimatePresence } from 'framer-motion';
-import { ExternalLink, Trophy } from 'lucide-react';
+import { ExternalLink, Trophy, Pause, Play, Users } from 'lucide-react';
 
 export function UI() {
-  const { gameState, playerId, joinGame } = useGameStore();
+  const { gameState, playerId, joinGame, isPaused, togglePause } = useGameStore();
   const [name, setName] = useState('');
 
   const player = playerId && gameState ? gameState.players[playerId] : null;
@@ -55,33 +55,92 @@ export function UI() {
           <ExternalLink size={16} />
           <span>New Tab</span>
         </button>
+
+        {isAlive && (
+          <button
+            onClick={togglePause}
+            className="flex items-center gap-2 px-4 py-2 bg-white/10 hover:bg-white/20 backdrop-blur-md rounded-full text-white text-sm font-bold transition-colors z-10 ml-2 pointer-events-auto"
+          >
+            {isPaused ? <Play size={16} fill="white" /> : <Pause size={16} fill="white" />}
+            <span>{isPaused ? 'RESUME' : 'PAUSE'}</span>
+          </button>
+        )}
       </div>
 
-      {/* Leaderboard */}
-      {gameState && gameState.leaderboard.length > 0 && (
-        <div className="absolute top-20 right-4 w-64 bg-black/40 backdrop-blur-md rounded-2xl p-4 border border-white/10 pointer-events-auto">
-          <div className="flex items-center gap-2 mb-4 text-white/80 font-semibold">
-            <Trophy size={18} className="text-yellow-400" />
-            <h2>LEADERBOARD</h2>
+      {/* Leaderboard / Players List on RHS */}
+      {gameState && (
+        <div className="absolute top-24 right-4 bottom-24 w-64 bg-black/40 backdrop-blur-md rounded-2xl p-4 border border-white/10 pointer-events-auto overflow-hidden flex flex-col">
+          <div className="flex items-center justify-between mb-4 text-white/80 font-semibold border-b border-white/5 pb-2">
+            <div className="flex items-center gap-2">
+              <Users size={18} className="text-blue-400" />
+              <h2 className="text-xs uppercase tracking-widest">Players</h2>
+            </div>
+            <span className="text-[10px] bg-white/10 px-1.5 py-0.5 rounded text-white/60">
+              {Object.keys(gameState.players).length}
+            </span>
           </div>
-          <div className="flex flex-col gap-2">
-            {gameState.leaderboard.map((entry, i) => (
-              <div key={entry.id} className="flex justify-between items-center text-sm">
-                <div className="flex items-center gap-2 truncate">
-                  <span className="text-white/40 w-4">{i + 1}.</span>
-                  <span style={{ color: entry.color }} className="font-medium truncate max-w-[120px]">
-                    {entry.name}
-                  </span>
+
+          <div className="flex-1 overflow-y-auto custom-scrollbar flex flex-col gap-1 pr-1">
+            {Object.values(gameState.players)
+              .sort((a, b) => b.score - a.score)
+              .map((p, i) => (
+                <div 
+                  key={p.id} 
+                  className={`flex justify-between items-center text-sm p-2 rounded-lg transition-colors ${p.id === playerId ? 'bg-white/10 ring-1 ring-inset ring-white/20' : 'hover:bg-white/5'}`}
+                >
+                  <div className="flex items-center gap-2 truncate">
+                    <span className="text-[10px] font-mono text-white/20 w-3">{i + 1}</span>
+                    <div 
+                      className="w-2 h-2 rounded-full" 
+                      style={{ backgroundColor: p.color, boxShadow: `0 0 8px ${p.color}` }}
+                    />
+                    <span className={`truncate max-w-[110px] font-medium ${p.id === playerId ? 'text-white' : 'text-white/70'}`}>
+                      {p.name}
+                    </span>
+                  </div>
+                  <span className="font-mono text-[11px] text-white/60">{Math.floor(p.score)}</span>
                 </div>
-                <span className="font-mono text-white/80">{entry.score}</span>
-              </div>
-            ))}
+              ))}
+          </div>
+          
+          <div className="mt-4 pt-4 border-t border-white/5">
+            <div className="flex items-center gap-2 text-white/40 text-[10px] uppercase tracking-widest font-bold">
+              <Trophy size={12} className="text-yellow-500" />
+              <span>Arena Rankings</span>
+            </div>
           </div>
         </div>
       )}
 
       {/* Menus */}
       <AnimatePresence>
+        {isPaused && isAlive && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="absolute inset-0 flex items-center justify-center pointer-events-auto bg-black/40 backdrop-blur-md z-30"
+          >
+            <div className="flex flex-col items-center gap-6">
+              <div className="relative">
+                 <motion.div 
+                   animate={{ scale: [1, 1.1, 1] }}
+                   transition={{ repeat: Infinity, duration: 2 }}
+                   className="absolute inset-0 bg-white/10 blur-3xl rounded-full"
+                 />
+                 <h2 className="text-6xl font-black text-white tracking-widest drop-shadow-2xl">PAUSED</h2>
+              </div>
+              <button
+                onClick={togglePause}
+                className="px-8 py-4 bg-white text-black font-black rounded-2xl hover:scale-105 transition-transform shadow-xl flex items-center gap-3"
+              >
+                <Play fill="black" size={24} />
+                RESUME GAME
+              </button>
+            </div>
+          </motion.div>
+        )}
+
         {(!player || isDead) && (
           <motion.div
             initial={{ opacity: 0, scale: 0.9 }}

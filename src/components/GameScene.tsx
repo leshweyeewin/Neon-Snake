@@ -8,14 +8,13 @@ import { useFrame, useThree } from '@react-three/fiber';
 import { useGameStore, globalGameState } from '../store/gameStore';
 import { WORLD_SIZE, TURN_SPEED, BOOST_SPEED, BASE_SPEED } from '../shared/types';
 import * as THREE from 'three';
-import { Sphere, Grid, Html } from '@react-three/drei';
+import { Sphere, Grid } from '@react-three/drei';
 
 const localCollectedOrbs = new Set<string>();
 
-function Snake({ playerId, name, color, isLocal }: { playerId: string, name: string, color: string, isLocal: boolean }) {
+function Snake({ playerId, color, isLocal }: { playerId: string, color: string, isLocal: boolean }) {
   const bodyRef = useRef<THREE.InstancedMesh>(null);
   const headRef = useRef<THREE.Mesh>(null);
-  const nameRef = useRef<HTMLDivElement>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const currentPositions = useRef<{x: number, y: number}[]>([]);
 
@@ -93,20 +92,6 @@ function Snake({ playerId, name, color, isLocal }: { playerId: string, name: str
             );
           }}
         />
-        <Html
-          position={[0, 1.5, 0]}
-          center
-          distanceFactor={15}
-          occlude="blending"
-        >
-          <div 
-            ref={nameRef}
-            className="px-2 py-1 bg-black/40 backdrop-blur-md rounded border border-white/10 select-none whitespace-nowrap"
-            style={{ color: color, textShadow: '0 0 5px rgba(0,0,0,0.5)' }}
-          >
-            <span className="text-[10px] font-black uppercase tracking-wider">{name}</span>
-          </div>
-        </Html>
       </Sphere>
       <instancedMesh ref={bodyRef} args={[null as any, null as any, 2000]} castShadow receiveShadow frustumCulled={false}>
         <sphereGeometry args={[0.6, 16, 16]} />
@@ -181,7 +166,7 @@ function Orbs() {
 }
 
 export function GameScene() {
-  const { gameState, playerId, sendPlayerState, sendCollectOrb } = useGameStore();
+  const { gameState, playerId, sendPlayerState, sendCollectOrb, isPaused } = useGameStore();
   const { camera } = useThree();
   const inputs = useRef({ left: false, right: false, boost: false });
   const lightRef = useRef<THREE.DirectionalLight>(null);
@@ -255,10 +240,14 @@ export function GameScene() {
       if (!localPlayerRef.current.active) return;
 
       // Local movement logic
-      if (inputs.current.left) localPlayerRef.current.currentAngle += TURN_SPEED * delta;
-      if (inputs.current.right) localPlayerRef.current.currentAngle -= TURN_SPEED * delta;
+      if (!isPaused) {
+        if (inputs.current.left) localPlayerRef.current.currentAngle += TURN_SPEED * delta;
+        if (inputs.current.right) localPlayerRef.current.currentAngle -= TURN_SPEED * delta;
+        localPlayerRef.current.isBoosting = inputs.current.boost && localPlayerRef.current.score > 10;
+      } else {
+        localPlayerRef.current.isBoosting = false;
+      }
       
-      localPlayerRef.current.isBoosting = inputs.current.boost && localPlayerRef.current.score > 10;
       const speed = localPlayerRef.current.isBoosting ? BOOST_SPEED : BASE_SPEED;
       
       const head = { ...localPlayerRef.current.segments[0] };
@@ -439,7 +428,6 @@ export function GameScene() {
           <Snake
             key={player.id}
             playerId={player.id}
-            name={player.name}
             color={player.color}
             isLocal={player.id === playerId}
           />

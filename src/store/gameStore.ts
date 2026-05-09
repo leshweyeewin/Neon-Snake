@@ -11,8 +11,10 @@ interface GameStore {
   socket: Socket | null;
   gameState: GameState | null;
   playerId: string | null;
+  isPaused: boolean;
   connect: () => void;
   joinGame: (name: string) => void;
+  togglePause: () => void;
   sendPlayerState: (data: any) => void;
   sendCollectOrb: (orbId: string) => void;
 }
@@ -24,6 +26,7 @@ export const useGameStore = create<GameStore>((set, get) => ({
   socket: null,
   gameState: null,
   playerId: null,
+  isPaused: false,
   connect: () => {
     if (get().socket) return;
     
@@ -53,6 +56,9 @@ export const useGameStore = create<GameStore>((set, get) => ({
     if (socket) {
       socket.emit('join', { name });
     }
+  },
+  togglePause: () => {
+    set((state) => ({ isPaused: !state.isPaused }));
   },
   sendPlayerState: (data) => {
     const { socket } = get();
