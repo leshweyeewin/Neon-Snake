@@ -12,11 +12,93 @@ import { Sphere, Grid } from '@react-three/drei';
 
 const localCollectedOrbs = new Set<string>();
 
+function BurstEffects({ color, position }: { color: string, position: [number, number, number] }) {
+  const pointsRef = useRef<THREE.Points>(null);
+  const startTime = useRef(Date.now());
+  const geo = useMemo(() => {
+    const g = new THREE.BufferGeometry();
+    const count = 30;
+    const pos = new Float32Array(count * 3);
+    const vel = new Float32Array(count * 3);
+    for (let i = 0; i < count; i++) {
+        const theta = Math.random() * Math.PI * 2;
+        const phi = Math.acos(2 * Math.random() - 1);
+        const r = 0.5 + Math.random() * 2;
+        vel[i * 3] = r * Math.sin(phi) * Math.cos(theta);
+        vel[i * 3 + 1] = r * Math.sin(phi) * Math.sin(theta);
+        vel[i * 3 + 2] = r * Math.cos(phi);
+    }
+    g.setAttribute('position', new THREE.BufferAttribute(pos, 3));
+    g.setAttribute('velocity', new THREE.BufferAttribute(vel, 3));
+    return g;
+  }, []);
+
+  useFrame((state, delta) => {
+    if (!pointsRef.current) return;
+    const elapsed = (Date.now() - startTime.current) / 1000;
+    const positions = geo.attributes.position.array as Float32Array;
+    const velocities = geo.attributes.velocity.array as Float32Array;
+    for (let i = 0; i < 30; i++) {
+      positions[i * 3] = velocities[i * 3] * elapsed;
+      positions[i * 3 + 1] = velocities[i * 3 + 1] * elapsed;
+      positions[i * 3 + 2] = velocities[i * 3 + 2] * elapsed;
+    }
+    geo.attributes.position.needsUpdate = true;
+    if (elapsed > 0.5) {
+      pointsRef.current.visible = false;
+    }
+  });
+
+  return (
+    <points ref={pointsRef} position={position} geometry={geo}>
+      <shaderMaterial
+        transparent
+        depthWrite={false}
+        blending={THREE.AdditiveBlending}
+        uniforms={{
+          uColor: { value: new THREE.Color(color) },
+          uTime: { value: 0 }
+        }}
+        vertexShader={`
+          varying float vLife;
+          void main() {
+            vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+            gl_PointSize = 10.0 * (300.0 / -mvPosition.z);
+            gl_Position = projectionMatrix * mvPosition;
+          }
+        `}
+        fragmentShader={`
+          uniform vec3 uColor;
+          void main() {
+            float dist = distance(gl_PointCoord, vec2(0.5));
+            if (dist > 0.5) discard;
+            gl_FragColor = vec4(uColor, 1.0 - dist * 2.0);
+          }
+        `}
+      />
+    </points>
+  );
+}
+
 function Snake({ playerId, color, isLocal }: { playerId: string, color: string, isLocal: boolean }) {
   const bodyRef = useRef<THREE.InstancedMesh>(null);
   const headRef = useRef<THREE.Mesh>(null);
+  const trailRef = useRef<THREE.Points>(null);
   const dummy = useMemo(() => new THREE.Object3D(), []);
   const currentPositions = useRef<{x: number, y: number}[]>([]);
+  const headGlow = useRef(0);
+  const lastScore = useRef(10);
+  const headMaterialRef = useRef<THREE.MeshStandardMaterial>(null);
+
+  // Particle Trail State
+  const MAX_PARTICLES = 400;
+  const trailParticles = useRef<{ pos: THREE.Vector3; life: number; size: number }[]>([]);
+  const trailGeo = useMemo(() => {
+    const geo = new THREE.BufferGeometry();
+    geo.setAttribute('position', new THREE.BufferAttribute(new Float32Array(MAX_PARTICLES * 3), 3));
+    geo.setAttribute('alpha', new THREE.BufferAttribute(new Float32Array(MAX_PARTICLES), 1));
+    return geo;
+  }, []);
 
   useFrame((state, delta) => {
     if (!bodyRef.current || !headRef.current) return;
@@ -33,6 +115,67 @@ function Snake({ playerId, color, isLocal }: { playerId: string, color: string, 
     headRef.current.visible = true;
     const count = player.segments.length;
     bodyRef.current.count = Math.max(0, count - 1);
+
+    // Animate glow
+    if (headGlow.current > 0) {
+      headGlow.current -= delta * 3;
+      if (headGlow.current < 0) headGlow.current = 0;
+    }
+
+    // Detect score change for glow trigger (remote and local)
+    if (player.score > lastScore.current) {
+      headGlow.current = 1.0;
+    }
+    lastScore.current = player.score;
+
+    if (headMaterialRef.current) {
+      headMaterialRef.current.emissiveIntensity = 1.0 + headGlow.current * 10.0;
+      headRef.current.scale.setScalar(1.0 + headGlow.current * 0.4);
+    }
+
+    // Trail logic
+    if (player.state === 'alive') {
+      const tail = player.segments[count - 1];
+      const spawnCount = player.isBoosting ? 3 : 1;
+      
+      for (let i = 0; i < spawnCount; i++) {
+        if (trailParticles.current.length < MAX_PARTICLES) {
+          trailParticles.current.push({
+            pos: new THREE.Vector3(
+              tail.x + (Math.random() - 0.5) * 0.8,
+              tail.y + (Math.random() - 0.5) * 0.8,
+              0.5
+            ),
+            life: 1.0,
+            size: 0.5 + Math.random() * 2.0
+          });
+        }
+      }
+    }
+
+    const positions = trailGeo.attributes.position.array as Float32Array;
+    const alphas = trailGeo.attributes.alpha.array as Float32Array;
+
+    for (let i = trailParticles.current.length - 1; i >= 0; i--) {
+      const p = trailParticles.current[i];
+      p.life -= delta * 1.5;
+      if (p.life <= 0) {
+        trailParticles.current.splice(i, 1);
+        continue;
+      }
+      positions[i * 3] = p.pos.x;
+      positions[i * 3 + 1] = p.pos.y;
+      positions[i * 3 + 2] = p.pos.z;
+      alphas[i] = p.life;
+    }
+
+    // Reset unused buffers
+    for (let i = trailParticles.current.length; i < MAX_PARTICLES; i++) {
+      alphas[i] = 0;
+    }
+
+    trailGeo.attributes.position.needsUpdate = true;
+    trailGeo.attributes.alpha.needsUpdate = true;
     
     while (currentPositions.current.length < count) {
       const idx = currentPositions.current.length;
@@ -75,12 +218,45 @@ function Snake({ playerId, color, isLocal }: { playerId: string, color: string, 
 
   return (
     <group>
+      <points ref={trailRef} geometry={trailGeo}>
+        <shaderMaterial
+          transparent
+          depthWrite={false}
+          blending={THREE.AdditiveBlending}
+          uniforms={{
+            uColor: { value: new THREE.Color(color) }
+          }}
+          vertexShader={`
+            attribute float alpha;
+            varying float vAlpha;
+            void main() {
+              vAlpha = alpha;
+              vec4 mvPosition = modelViewMatrix * vec4(position, 1.0);
+              gl_PointSize = 15.0 * (max(0.5, alpha)) * (300.0 / -mvPosition.z);
+              gl_Position = projectionMatrix * mvPosition;
+            }
+          `}
+          fragmentShader={`
+            uniform vec3 uColor;
+            varying float vAlpha;
+            void main() {
+              float dist = distance(gl_PointCoord, vec2(0.5));
+              if (dist > 0.5) discard;
+              float intensity = pow(1.0 - (dist * 2.0), 2.0);
+              gl_FragColor = vec4(uColor, vAlpha * intensity * 0.6);
+            }
+          `}
+        />
+      </points>
       <Sphere ref={headRef} castShadow receiveShadow args={[0.8, 16, 16]}>
         <meshStandardMaterial
+          ref={headMaterialRef}
           color={color}
           roughness={0.2}
           metalness={0.8}
           toneMapped={false}
+          emissive={color}
+          emissiveIntensity={1}
           onBeforeCompile={(shader) => {
             shader.fragmentShader = shader.fragmentShader.replace(
               '#include <emissivemap_fragment>',
@@ -170,6 +346,8 @@ export function GameScene() {
   const { camera } = useThree();
   const inputs = useRef({ left: false, right: false, boost: false });
   const lightRef = useRef<THREE.DirectionalLight>(null);
+  const [bursts, setBursts] = useState<{ id: string, color: string, pos: [number, number, number] }[]>([]);
+  const lastScore = useRef(10);
   const [lightTarget] = useState(() => new THREE.Object3D());
 
   const localPlayerRef = useRef<{
@@ -285,6 +463,13 @@ export function GameScene() {
         if (dx * dx + dy * dy < 4) {
           localPlayerRef.current.score += orb.value;
           
+          // Trigger local burst
+          setBursts(prev => [...prev.slice(-10), { 
+            id: Math.random().toString(), 
+            color: orb.color, 
+            pos: [orb.x, orb.y, 0.5] 
+          }]);
+
           // Track eaten colors
           const eatenColors = { ...localPlayerRef.current.eatenColors };
           eatenColors[orb.color] = (eatenColors[orb.color] || 0) + 1;
@@ -421,6 +606,10 @@ export function GameScene() {
       />
 
       <Orbs />
+
+      {bursts.map(b => (
+        <BurstEffects key={b.id} color={b.color} position={b.pos} />
+      ))}
 
       {Object.values(gameState.players).map((player) => {
         if (player.state !== 'alive' || player.segments.length === 0) return null;

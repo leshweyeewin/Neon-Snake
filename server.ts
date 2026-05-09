@@ -4,14 +4,18 @@
 */
 
 import express from 'express';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { createServer as createViteServer } from 'vite';
 import { Server } from 'socket.io';
 import { createServer } from 'http';
 import { v4 as uuidv4 } from 'uuid';
-import {
+import type {
   GameState,
   Player,
   Orb,
+} from './src/shared/types.ts';
+import {
   WORLD_SIZE,
   BASE_SPEED,
   BOOST_SPEED,
@@ -30,7 +34,9 @@ const io = new Server(httpServer, {
   },
 });
 
-const PORT = 3000;
+const PORT = Number(process.env.PORT) || 3000;
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
 
 const COLORS = [
   '#ff7eb3', // vibrant pink
@@ -181,7 +187,11 @@ async function startServer() {
     });
     app.use(vite.middlewares);
   } else {
-    app.use(express.static('dist'));
+    const distPath = path.join(process.cwd(), 'dist');
+    app.use(express.static(distPath));
+    app.get('*', (req, res) => {
+      res.sendFile(path.join(distPath, 'index.html'));
+    });
   }
 
   httpServer.listen(PORT, '0.0.0.0', () => {
